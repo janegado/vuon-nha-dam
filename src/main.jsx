@@ -1,3 +1,4 @@
+// Hệ Thống Quản Trị Vườn Nha Đam Mỹ - Auto Sync Realtime Active
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
