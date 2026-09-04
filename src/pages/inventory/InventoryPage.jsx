@@ -1001,13 +1001,29 @@ export default function InventoryPage() {
                             </div>
                           )}
                         </td>
-                        <td>{receipt.qty} {receipt.unit}</td>
+                        <td>
+                          {(() => {
+                            const calcListTotal = (receipt.items_list && Array.isArray(receipt.items_list))
+                              ? receipt.items_list.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)
+                              : 0
+                            return `${parseFloat(receipt.qty) || calcListTotal || 0} ${receipt.unit || 'món'}`
+                          })()}
+                        </td>
                         <td>
                           {receipt.bonus_qty > 0 ? (
                             <span className="badge badge-success">+{receipt.bonus_qty} {receipt.unit}</span>
                           ) : '—'}
                         </td>
-                        <td><strong>{receipt.total_received_qty || receipt.qty} {receipt.unit}</strong></td>
+                        <td>
+                          <strong>
+                            {(() => {
+                              const calcListTotal = (receipt.items_list && Array.isArray(receipt.items_list))
+                                ? receipt.items_list.reduce((s, i) => s + (parseFloat(i.total_received_qty || i.qty) || 0), 0)
+                                : 0
+                              return `${parseFloat(receipt.total_received_qty ?? receipt.qty) || calcListTotal || 0} ${receipt.unit || 'món'}`
+                            })()}
+                          </strong>
+                        </td>
                         <td style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{formatVND(receipt.total_cost)}</td>
                         <td>
                           <span className="badge badge-success" style={{ fontSize: 13, fontWeight: 700 }}>
@@ -1358,14 +1374,19 @@ export default function InventoryPage() {
                       <td>
                         <strong style={{ color: '#16a34a' }}>
                           {(() => {
+                            const calcListTotal = (r.items_list && Array.isArray(r.items_list))
+                              ? r.items_list.reduce((s, i) => s + (parseFloat(i.total_received_qty || i.qty) || 0), 0)
+                              : 0
+                            const totalQty = parseFloat(r.total_received_qty ?? r.qty) || calcListTotal || 0
+
                             if (r.items_list && Array.isArray(r.items_list) && r.items_list.length > 0) {
                               const distinctUnits = [...new Set(r.items_list.map(i => i.unit).filter(Boolean))]
                               if (distinctUnits.length === 1) {
-                                return `+${r.total_received_qty || r.qty} ${distinctUnits[0]}`
+                                return `+${totalQty} ${distinctUnits[0]}`
                               }
                               return `+${r.items_list.length} món (${r.items_list.map(i => `${i.total_received_qty || i.qty} ${i.unit}`).join(', ')})`
                             }
-                            return `+${r.total_received_qty || r.qty} ${r.unit || 'món'}`
+                            return `+${totalQty} ${r.unit || 'món'}`
                           })()}
                         </strong>
                       </td>

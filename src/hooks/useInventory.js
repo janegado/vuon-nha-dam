@@ -237,24 +237,52 @@ export function useInventory() {
       const saved = localStorage.getItem('app_inventory_items')
       let itemsData = saved ? JSON.parse(saved) : [...DEMO_INVENTORY]
 
-      // Tự động chuẩn hóa đơn vị cho các phiếu nhập (Tránh hiển thị sai đơn vị cây cho men vi sinh/phân bón)
+      // Tự động chuẩn hóa đơn vị & số lượng cho các phiếu nhập
       let receiptsChanged = false
       const normalizedReceipts = (receiptsData || []).map(r => {
         let correctUnit = r.unit
+        let calcTotalQty = 0
+        let calcGoodsCost = 0
+        let itemNames = []
+
         if (r.items_list && Array.isArray(r.items_list) && r.items_list.length > 0) {
           const distinctUnits = [...new Set(r.items_list.map(i => i.unit).filter(Boolean))]
           correctUnit = distinctUnits.length === 1 ? distinctUnits[0] : 'món'
+          calcTotalQty = r.items_list.reduce((sum, i) => sum + (parseFloat(i.total_received_qty || i.qty) || 0), 0)
+          calcGoodsCost = r.items_list.reduce((sum, i) => sum + ((parseFloat(i.qty) || 0) * (parseFloat(i.unit_price) || 0)), 0)
+          itemNames = r.items_list.map(i => i.item_name || i.variety).filter(Boolean)
         } else if (r.item_name) {
           const matchedItem = itemsData.find(i => i.item_id === r.item_id || i.item_name.toLowerCase() === r.item_name.toLowerCase())
           if (matchedItem && matchedItem.unit) {
             correctUnit = matchedItem.unit
           }
         }
-        if (correctUnit && correctUnit !== r.unit) {
+
+        const totalReceived = parseFloat(r.total_received_qty ?? r.qty) || calcTotalQty
+        const derivedItemName = r.item_name || (itemNames.length > 0 ? itemNames.join(', ') : 'Vật tư')
+        const finalUnit = correctUnit || r.unit || 'món'
+        const effectiveUnitCost = totalReceived > 0 ? Math.round((parseFloat(r.total_cost) || calcGoodsCost) / totalReceived) : (parseFloat(r.effective_unit_cost) || 0)
+
+        const isUpdated = (
+          r.unit !== finalUnit ||
+          r.total_received_qty !== totalReceived ||
+          r.item_name !== derivedItemName ||
+          !r.effective_unit_cost
+        )
+
+        if (isUpdated) {
           receiptsChanged = true
-          return { ...r, unit: correctUnit }
         }
-        return r
+
+        return {
+          ...r,
+          item_name: derivedItemName,
+          unit: finalUnit,
+          total_received_qty: totalReceived,
+          qty: r.qty ?? totalReceived,
+          goods_cost: r.goods_cost ?? calcGoodsCost,
+          effective_unit_cost: effectiveUnitCost
+        }
       })
 
       if (receiptsChanged) {
