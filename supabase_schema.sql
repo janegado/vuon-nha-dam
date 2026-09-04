@@ -1,218 +1,255 @@
 -- ============================================================
--- SUPABASE SCHEMA — App Quản Trị Vườn Nha Đam
+-- SUPABASE SCHEMA CHUẨN ĐỒNG BỘ 100% — Vườn Nha Đam 2026
+-- Hỗ trợ mã định danh TEXT (NL01, PN01, Lô 1...) & Đồng bộ 2 chiều
 -- Chạy script này trong Supabase SQL Editor (Dashboard → SQL)
 -- ============================================================
 
--- ============ MODULE 1: Lô & Cây trồng ============
+-- 1. Xóa các bảng cũ nếu có kiểu dữ liệu UUID để tránh lỗi ép kiểu
+DROP TABLE IF EXISTS sales_order_items CASCADE;
+DROP TABLE IF EXISTS sales_orders CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS cost_records CASCADE;
+DROP TABLE IF EXISTS production_logs CASCADE;
+DROP TABLE IF EXISTS purchase_receipts CASCADE;
+DROP TABLE IF EXISTS inventory_items CASCADE;
+DROP TABLE IF EXISTS chemical_logs CASCADE;
+DROP TABLE IF EXISTS field_tasks CASCADE;
+DROP TABLE IF EXISTS compost_batches CASCADE;
+DROP TABLE IF EXISTS circular_nodes CASCADE;
+DROP TABLE IF EXISTS crops CASCADE;
+DROP TABLE IF EXISTS plots CASCADE;
 
+-- 2. Tạo bảng Lô đất (plots)
 CREATE TABLE plots (
-  plot_id       UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  plot_id       TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
-  area_m2       NUMERIC(10,2),
-  soil_ph       NUMERIC(4,2),
-  soil_type     TEXT,          -- thành phần cơ giới
-  status        TEXT DEFAULT 'Đang canh tác',  -- Đang canh tác / Nghỉ / Chuẩn bị
-  area_coord_code TEXT,        -- mã định danh khu vực
-  cultivation_history TEXT,    -- lịch sử canh tác
-  last_soil_treatment_date DATE, -- ngày cày phơi ải/bón vôi gần nhất
+  area_m2       NUMERIC(10,2) DEFAULT 0,
+  soil_ph       NUMERIC(4,2) DEFAULT 6.5,
+  soil_type     TEXT DEFAULT 'Thịt nhẹ',
+  status        TEXT DEFAULT 'Chuẩn bị',
+  cultivation_stage TEXT DEFAULT 'Làm đất',
+  area_coord_code TEXT,
+  cultivation_history TEXT,
+  last_soil_treatment_date DATE,
+  data          JSONB,
   created_at    TIMESTAMPTZ DEFAULT now(),
   updated_at    TIMESTAMPTZ DEFAULT now()
 );
 
+-- 3. Tạo bảng Cây trồng & Giống (crops)
 CREATE TABLE crops (
-  crop_id       UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  plot_id       UUID REFERENCES plots(plot_id) ON DELETE CASCADE,
+  crop_id       TEXT PRIMARY KEY,
+  plot_id       TEXT,
   plant_type    TEXT DEFAULT 'Nha đam',
   plant_date    DATE,
-  density       TEXT,          -- mật độ trồng (VD: "25cm x 30cm")
-  stage         TEXT DEFAULT 'Kiến thiết cơ bản',  -- Kiến thiết cơ bản / Kinh doanh
-  seed_source   TEXT,          -- nguồn gốc giống
+  density       TEXT,
+  stage         TEXT DEFAULT 'Kiến thiết cơ bản',
+  seed_source   TEXT,
+  plant_count   INT DEFAULT 0,
+  seed_count    INT DEFAULT 0,
+  seed_batches  JSONB,
+  seed_notes    TEXT,
+  data          JSONB,
   created_at    TIMESTAMPTZ DEFAULT now(),
   updated_at    TIMESTAMPTZ DEFAULT now()
 );
 
--- ============ MODULE 2: Vòng tuần hoàn ============
+-- 4. Tạo bảng Kho vật tư & Nguyên liệu (inventory_items)
+CREATE TABLE inventory_items (
+  item_id       TEXT PRIMARY KEY,
+  item_name     TEXT NOT NULL,
+  item_type     TEXT NOT NULL,
+  unit          TEXT NOT NULL DEFAULT 'kg',
+  qty_in        NUMERIC(12,2) DEFAULT 0,
+  qty_out       NUMERIC(12,2) DEFAULT 0,
+  qty_remaining NUMERIC(12,2) DEFAULT 0,
+  unit_cost     NUMERIC(12,0) DEFAULT 0,
+  supplier      TEXT,
+  notes         TEXT,
+  data          JSONB,
+  created_at    TIMESTAMPTZ DEFAULT now(),
+  updated_at    TIMESTAMPTZ DEFAULT now()
+);
 
+-- 5. Tạo bảng Phiếu nhập mua hàng (purchase_receipts)
+CREATE TABLE purchase_receipts (
+  receipt_id          TEXT PRIMARY KEY,
+  date                DATE DEFAULT CURRENT_DATE,
+  item_id             TEXT,
+  item_name           TEXT,
+  variety             TEXT,
+  supplier            TEXT,
+  unit                TEXT DEFAULT 'cây',
+  total_received_qty  NUMERIC(12,2) DEFAULT 0,
+  goods_cost          NUMERIC(12,0) DEFAULT 0,
+  shipping_cost       NUMERIC(12,0) DEFAULT 0,
+  discount_amount     NUMERIC(12,0) DEFAULT 0,
+  total_cost          NUMERIC(12,0) DEFAULT 0,
+  effective_unit_cost NUMERIC(12,0) DEFAULT 0,
+  items_list          JSONB,
+  notes               TEXT,
+  data                JSONB,
+  created_at          TIMESTAMPTZ DEFAULT now()
+);
+
+-- 6. Tạo bảng Nhật ký sản xuất / Xuất kho (production_logs)
+CREATE TABLE production_logs (
+  log_id        TEXT PRIMARY KEY,
+  plot_id       TEXT,
+  date          DATE DEFAULT CURRENT_DATE,
+  material_code TEXT,
+  material_name TEXT,
+  purpose       TEXT,
+  qty_out       NUMERIC(12,2) DEFAULT 0,
+  unit          TEXT,
+  unit_cost     NUMERIC(12,0) DEFAULT 0,
+  total_cost    NUMERIC(12,0) DEFAULT 0,
+  target_code   TEXT,
+  target_name   TEXT,
+  output_qty    NUMERIC(12,2) DEFAULT 0,
+  output_unit   TEXT,
+  notes         TEXT,
+  is_auto_synced BOOLEAN DEFAULT false,
+  data          JSONB,
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- 7. Tạo bảng Lịch tác nghiệp & Nhắc việc (field_tasks)
+CREATE TABLE field_tasks (
+  task_id         TEXT PRIMARY KEY,
+  plot_id         TEXT,
+  task_name       TEXT NOT NULL,
+  task_type       TEXT NOT NULL,
+  execute_date    DATE NOT NULL,
+  status          TEXT DEFAULT 'Chờ làm',
+  worker_id       TEXT DEFAULT 'Thuý',
+  harvest_qty_kg  NUMERIC(10,2) DEFAULT 0,
+  harvest_leaves  INT DEFAULT 0,
+  stage_milestone TEXT,
+  reminder_tag    TEXT,
+  day_offset      INT,
+  is_auto_reminder BOOLEAN DEFAULT false,
+  qr_code         TEXT,
+  notes           TEXT,
+  completed_at    TIMESTAMPTZ,
+  data            JSONB,
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+-- 8. Tạo bảng BVTV & Dịch hại (chemical_logs)
+CREATE TABLE chemical_logs (
+  log_id              TEXT PRIMARY KEY,
+  plot_id             TEXT,
+  agent_name          TEXT NOT NULL,
+  agent_type          TEXT,
+  dose                TEXT,
+  date_applied        DATE NOT NULL,
+  phi_days            INT NOT NULL DEFAULT 7,
+  harvest_allowed_date DATE,
+  technique_notes     TEXT,
+  is_correct_drug     BOOLEAN DEFAULT true,
+  is_correct_time     BOOLEAN DEFAULT true,
+  is_correct_dose     BOOLEAN DEFAULT true,
+  is_correct_technique BOOLEAN DEFAULT true,
+  data                JSONB,
+  created_at          TIMESTAMPTZ DEFAULT now()
+);
+
+-- 9. Tạo bảng Tuần hoàn & Mẻ ủ (circular_nodes & compost_batches)
 CREATE TABLE circular_nodes (
-  node_id       UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  node_type     TEXT NOT NULL,  -- Ủ phân / Trùn quế / Khí sinh học
-  input_source  TEXT,           -- nguồn đầu vào
-  capacity      TEXT,           -- sức chứa
+  node_id       TEXT PRIMARY KEY,
+  node_type     TEXT NOT NULL,
+  input_source  TEXT,
+  capacity      TEXT,
   status        TEXT DEFAULT 'Hoạt động',
+  data          JSONB,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE compost_batches (
-  batch_id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  node_id           UUID REFERENCES circular_nodes(node_id) ON DELETE CASCADE,
-  compost_type      TEXT DEFAULT 'Ủ nhanh',  -- Ủ nhanh (7-10 ngày) / Ủ chuyên biệt bã nha đam (70 ngày)
+  batch_id          TEXT PRIMARY KEY,
+  node_id           TEXT,
+  compost_type      TEXT DEFAULT 'Ủ nhanh',
   input_mass_kg     NUMERIC(10,2),
-  input_composition TEXT,       -- VD: "60% bã nha đam, 20% xác bã, 20% phân bò"
-  temp_target_min   NUMERIC(5,1) DEFAULT 50,   -- °C - theo compost_type
+  input_composition TEXT,
+  temp_target_min   NUMERIC(5,1) DEFAULT 50,
   temp_target_max   NUMERIC(5,1) DEFAULT 60,
   humidity_pct      NUMERIC(5,1),
   start_date        DATE NOT NULL,
-  cover_removal_date DATE,     -- ngày dỡ bạt
-  next_check_date   DATE,      -- ngày kiểm tra nhiệt độ tiếp
-  turn_interval_days INT DEFAULT 14,  -- tần suất đảo trộn
-  status            TEXT DEFAULT 'Đang ủ',  -- Đang ủ / Hoàn thành / Hủy
+  cover_removal_date DATE,
+  next_check_date   DATE,
+  turn_interval_days INT DEFAULT 14,
+  status            TEXT DEFAULT 'Đang ủ',
   notes             TEXT,
+  data              JSONB,
   created_at        TIMESTAMPTZ DEFAULT now()
 );
 
--- ============ MODULE 3: Lịch tác nghiệp & Nhật ký ============
-
-CREATE TABLE field_tasks (
-  task_id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  plot_id         UUID REFERENCES plots(plot_id) ON DELETE CASCADE,
-  task_name       TEXT NOT NULL,
-  task_type       TEXT NOT NULL,  -- Tưới / Bón phân / Làm cỏ / Tỉa lá / Xịt thuốc / Thu hoạch / Khác
-  execute_date    DATE NOT NULL,
-  status          TEXT DEFAULT 'Chờ làm',  -- Chờ làm / Đã hoàn thành / Bỏ qua
-  worker_id       TEXT DEFAULT 'Thuý',
-  harvest_qty_kg  NUMERIC(10,2),  -- số kg thu hoạch (nếu task_type = Thu hoạch)
-  harvest_leaves  INT,            -- số lá thu hoạch
-  qr_code         TEXT,
-  notes           TEXT,
-  completed_at    TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
--- ============ MODULE 4: BVTV & Dịch hại ============
-
-CREATE TABLE chemical_logs (
-  log_id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  plot_id             UUID REFERENCES plots(plot_id) ON DELETE CASCADE,
-  agent_name          TEXT NOT NULL,     -- tên thuốc
-  agent_type          TEXT,              -- sinh học / hóa học
-  dose                TEXT,              -- liều lượng
-  date_applied        DATE NOT NULL,
-  phi_days            INT NOT NULL DEFAULT 7,  -- số ngày cách ly
-  harvest_allowed_date DATE,             -- tự tính = date_applied + phi_days
-  technique_notes     TEXT,              -- ghi chú kỹ thuật phun
-  is_correct_drug     BOOLEAN DEFAULT true,   -- đúng thuốc
-  is_correct_time     BOOLEAN DEFAULT true,   -- đúng lúc
-  is_correct_dose     BOOLEAN DEFAULT true,   -- đúng liều lượng
-  is_correct_technique BOOLEAN DEFAULT true,  -- đúng kỹ thuật
-  created_at          TIMESTAMPTZ DEFAULT now()
-);
-
--- ============ MODULE 5: Kho vật tư & Tài chính ============
-
-CREATE TABLE inventory_items (
-  item_id       UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  item_name     TEXT NOT NULL,
-  item_type     TEXT NOT NULL,  -- Men vi sinh / Phân hữu cơ / Hạt giống / Thuốc BVTV / Khác
-  unit          TEXT NOT NULL,  -- kg / lít / gói / chai
-  qty_in        NUMERIC(10,2) DEFAULT 0,
-  qty_out       NUMERIC(10,2) DEFAULT 0,
-  qty_remaining NUMERIC(10,2) DEFAULT 0,
-  unit_cost     NUMERIC(12,0) DEFAULT 0,  -- VND
-  updated_date  DATE DEFAULT CURRENT_DATE,
-  notes         TEXT,
-  created_at    TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE cost_records (
-  record_id       UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  plot_id         UUID REFERENCES plots(plot_id) ON DELETE SET NULL,
-  node_id         UUID REFERENCES circular_nodes(node_id) ON DELETE SET NULL,
-  record_type     TEXT,  -- Vật tư / Thu hoạch / Bán hàng / Khác
-  input_material  TEXT,
-  input_qty       NUMERIC(10,2),
-  input_cost      NUMERIC(12,0) DEFAULT 0,   -- VND
-  output_qty      NUMERIC(10,2),
-  output_value    NUMERIC(12,0) DEFAULT 0,    -- VND
-  record_date     DATE DEFAULT CURRENT_DATE,
-  notes           TEXT,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
--- ============ MODULE 6: Bán hàng & CRM ============
-
+-- 10. Tạo bảng Bán hàng & Khách hàng (products, customers, sales_orders)
 CREATE TABLE products (
-  product_id      UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  product_id      TEXT PRIMARY KEY,
   product_name    TEXT NOT NULL,
-  product_type    TEXT NOT NULL,  -- Chậu cảnh / Cây giống / Lá tươi / Mật ong
-  unit            TEXT NOT NULL,  -- chậu / cây / kg / chai
-  unit_price      NUMERIC(12,0) DEFAULT 0,  -- VND
+  product_type    TEXT NOT NULL,
+  unit            TEXT NOT NULL,
+  unit_price      NUMERIC(12,0) DEFAULT 0,
   qty_in_stock    NUMERIC(10,2) DEFAULT 0,
-  source_type     TEXT DEFAULT 'Tự làm',  -- Tự làm / Mua ngoài
-  linked_plot_id  UUID REFERENCES plots(plot_id) ON DELETE SET NULL,
-  linked_crop_id  UUID REFERENCES crops(crop_id) ON DELETE SET NULL,
-  updated_date    DATE DEFAULT CURRENT_DATE,
+  source_type     TEXT DEFAULT 'Tự làm',
+  linked_plot_id  TEXT,
+  data            JSONB,
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE customers (
-  customer_id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  customer_id         TEXT PRIMARY KEY,
   name                TEXT NOT NULL,
   phone               TEXT,
   address             TEXT,
   note                TEXT,
   first_purchase_date DATE,
+  data                JSONB,
   created_at          TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE sales_orders (
-  order_id        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  customer_id     UUID REFERENCES customers(customer_id) ON DELETE SET NULL,
+  order_id        TEXT PRIMARY KEY,
+  customer_id     TEXT,
   order_date      DATE DEFAULT CURRENT_DATE,
-  channel         TEXT DEFAULT 'Tại vườn',  -- Tại vườn / Facebook / Zalo / Khác
-  total_amount    NUMERIC(12,0) DEFAULT 0,  -- VND
-  amount_paid     NUMERIC(12,0) DEFAULT 0,  -- VND
-  payment_status  TEXT DEFAULT 'Còn nợ',    -- Đã thu đủ / Còn nợ
+  channel         TEXT DEFAULT 'Tại vườn',
+  total_amount    NUMERIC(12,0) DEFAULT 0,
+  amount_paid     NUMERIC(12,0) DEFAULT 0,
+  payment_status  TEXT DEFAULT 'Còn nợ',
+  items_list      JSONB,
   note            TEXT,
+  data            JSONB,
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE sales_order_items (
-  order_item_id   UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  order_id        UUID REFERENCES sales_orders(order_id) ON DELETE CASCADE,
-  product_id      UUID REFERENCES products(product_id) ON DELETE SET NULL,
-  qty             NUMERIC(10,2) NOT NULL,
-  unit_price      NUMERIC(12,0) DEFAULT 0,
-  subtotal        NUMERIC(12,0) DEFAULT 0,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
--- ============ INDEX cho tìm kiếm nhanh ============
-
-CREATE INDEX idx_crops_plot ON crops(plot_id);
-CREATE INDEX idx_tasks_plot_date ON field_tasks(plot_id, execute_date);
-CREATE INDEX idx_tasks_date ON field_tasks(execute_date);
-CREATE INDEX idx_chemical_plot ON chemical_logs(plot_id);
-CREATE INDEX idx_batches_node ON compost_batches(node_id);
-CREATE INDEX idx_orders_customer ON sales_orders(customer_id);
-CREATE INDEX idx_order_items_order ON sales_order_items(order_id);
-CREATE INDEX idx_products_type ON products(product_type);
-
--- ============ RLS (Row Level Security) — tắt tạm cho single-user ============
--- Khi cần multi-user sau này, bật RLS và thêm policy theo user_id
-
+-- 11. Bật phân quyền truy cập công khai an toàn (Row Level Security - Full Access for Anon)
 ALTER TABLE plots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crops ENABLE ROW LEVEL SECURITY;
-ALTER TABLE circular_nodes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE compost_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE purchase_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE field_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chemical_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cost_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE circular_nodes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE compost_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sales_order_items ENABLE ROW LEVEL SECURITY;
 
--- Policy cho phép tất cả (single-user mode)
 DO $$
 DECLARE
   t TEXT;
 BEGIN
   FOR t IN SELECT unnest(ARRAY[
-    'plots','crops','circular_nodes','compost_batches',
-    'field_tasks','chemical_logs','inventory_items','cost_records',
-    'products','customers','sales_orders','sales_order_items'
+    'plots','crops','inventory_items','purchase_receipts','production_logs',
+    'field_tasks','chemical_logs','circular_nodes','compost_batches',
+    'products','customers','sales_orders'
   ]) LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "Allow all for anon" ON %I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "Allow all for authenticated" ON %I', t);
     EXECUTE format('CREATE POLICY "Allow all for anon" ON %I FOR ALL TO anon USING (true) WITH CHECK (true)', t);
     EXECUTE format('CREATE POLICY "Allow all for authenticated" ON %I FOR ALL TO authenticated USING (true) WITH CHECK (true)', t);
   END LOOP;
