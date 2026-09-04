@@ -288,8 +288,99 @@ export function useInventory() {
       setLoading(false)
       return
     }
-    const { data, error } = await supabase.from('inventory_items').select('*').order('item_name')
-    if (!error) setItems(data || [])
+
+    try {
+      const [iRes, rRes, lRes] = await Promise.all([
+        supabase.from('inventory_items').select('*').order('item_name'),
+        supabase.from('purchase_receipts').select('*').order('date', { ascending: false }),
+        supabase.from('production_logs').select('*').order('date', { ascending: false })
+      ])
+
+      const savedInv = localStorage.getItem('app_inventory_items')
+      const savedRec = localStorage.getItem('app_purchase_receipts')
+      const savedLogs = localStorage.getItem('app_production_logs')
+
+      const localItems = savedInv ? JSON.parse(savedInv) : [...DEMO_INVENTORY]
+      const localReceipts = savedRec ? JSON.parse(savedRec) : []
+      const localLogs = savedLogs ? JSON.parse(savedLogs) : []
+
+      if (iRes.data && iRes.data.length > 0) {
+        setItems(iRes.data)
+        setPurchaseReceipts(rRes.data || [])
+        setProductionLogs(lRes.data || [])
+        localStorage.setItem('app_inventory_items', JSON.stringify(iRes.data))
+        if (rRes.data) localStorage.setItem('app_purchase_receipts', JSON.stringify(rRes.data))
+        if (lRes.data) localStorage.setItem('app_production_logs', JSON.stringify(lRes.data))
+      } else {
+        // Supabase trống -> Lấy dữ liệu Local & Tự động đẩy lên Supabase
+        const calculatedItems = calculateInventoryFromReceiptsAndLogs(localItems, localReceipts, localLogs)
+        setItems(calculatedItems)
+        setPurchaseReceipts(localReceipts)
+        setProductionLogs(localLogs)
+
+        // Asynchronously push to Supabase
+        const sanitizedItems = calculatedItems.map(i => ({
+          item_id: String(i.item_id),
+          item_name: i.item_name,
+          item_type: i.item_type || 'Nguyên liệu',
+          unit: i.unit || 'kg',
+          qty_in: parseFloat(i.qty_in) || 0,
+          qty_out: parseFloat(i.qty_out) || 0,
+          qty_remaining: parseFloat(i.qty_remaining) || 0,
+          unit_cost: parseFloat(i.unit_cost) || 0,
+          supplier: i.supplier || '',
+          notes: i.notes || ''
+        }))
+        supabase.from('inventory_items').upsert(sanitizedItems, { onConflict: 'item_id' }).catch(console.error)
+        
+        if (localReceipts.length > 0) {
+          const sanitizedReceipts = localReceipts.map(r => ({
+            receipt_id: String(r.receipt_id),
+            date: r.date || null,
+            item_id: r.item_id || 'NL07',
+            item_name: r.item_name || 'Vật tư',
+            variety: r.variety || '',
+            supplier: r.supplier || '',
+            unit: r.unit || 'cây',
+            total_received_qty: parseFloat(r.total_received_qty || r.qty) || 0,
+            goods_cost: parseFloat(r.goods_cost) || 0,
+            shipping_cost: parseFloat(r.shipping_cost) || 0,
+            discount_amount: parseFloat(r.discount_amount) || 0,
+            total_cost: parseFloat(r.total_cost) || 0,
+            effective_unit_cost: parseFloat(r.effective_unit_cost) || 0,
+            items_list: r.items_list || null,
+            notes: r.notes || ''
+          }))
+          supabase.from('purchase_receipts').upsert(sanitizedReceipts, { onConflict: 'receipt_id' }).catch(console.error)
+        }
+
+        if (localLogs.length > 0) {
+          const sanitizedLogs = localLogs.map(l => ({
+            log_id: String(l.log_id),
+            plot_id: l.plot_id ? String(l.plot_id) : null,
+            date: l.date || null,
+            material_code: l.material_code || '',
+            material_name: l.material_name || '',
+            purpose: l.purpose || '',
+            qty_out: parseFloat(l.qty_out || l.quantity_used) || 0,
+            unit: l.unit || '',
+            unit_cost: parseFloat(l.unit_cost) || 0,
+            total_cost: parseFloat(l.total_cost) || 0,
+            target_code: l.target_code || '',
+            target_name: l.target_name || '',
+            output_qty: parseFloat(l.output_qty) || 0,
+            output_unit: l.output_unit || '',
+            notes: l.notes || '',
+            is_auto_synced: Boolean(l.is_auto_synced)
+          }))
+          supabase.from('production_logs').upsert(sanitizedLogs, { onConflict: 'log_id' }).catch(console.error)
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching inventory from Supabase', err)
+      const savedInv = localStorage.getItem('app_inventory_items')
+      setItems(savedInv ? JSON.parse(savedInv) : [...DEMO_INVENTORY])
+    }
     setLoading(false)
   }, [])
 

@@ -16,14 +16,42 @@ export function usePlots() {
 
   const fetchPlots = useCallback(async () => {
     setLoading(true)
+    const saved = localStorage.getItem('app_plots_data')
+    const localPlots = saved ? JSON.parse(saved) : DEMO_PLOTS
+
     if (!isConnected()) {
-      const saved = localStorage.getItem('app_plots_data')
-      setPlots(saved ? JSON.parse(saved) : DEMO_PLOTS)
+      setPlots(localPlots)
       setLoading(false)
       return
     }
-    const { data, error } = await supabase.from('plots').select('*').order('created_at', { ascending: false })
-    if (!error) setPlots(data || [])
+
+    try {
+      const { data, error } = await supabase.from('plots').select('*').order('created_at', { ascending: false })
+      if (!error && data && data.length > 0) {
+        setPlots(data)
+        localStorage.setItem('app_plots_data', JSON.stringify(data))
+      } else if (localPlots && localPlots.length > 0) {
+        // Cloud trống nhưng Local có dữ liệu -> Hiển thị Local & Tự động đẩy lên Cloud
+        setPlots(localPlots)
+        const sanitized = localPlots.map(p => ({
+          plot_id: String(p.plot_id || p.id),
+          name: p.name || 'Lô vườn',
+          area_m2: parseFloat(p.area_m2) || 0,
+          soil_ph: parseFloat(p.soil_ph) || 6.5,
+          soil_type: p.soil_type || 'Thịt nhẹ',
+          status: p.status || 'Chuẩn bị',
+          cultivation_stage: p.cultivation_stage || 'Làm đất',
+          area_coord_code: p.area_coord_code || '',
+          cultivation_history: p.cultivation_history || '',
+          last_soil_treatment_date: p.last_soil_treatment_date || null
+        }))
+        supabase.from('plots').upsert(sanitized, { onConflict: 'plot_id' }).catch(console.error)
+      } else {
+        setPlots([])
+      }
+    } catch (e) {
+      setPlots(localPlots)
+    }
     setLoading(false)
   }, [])
 
@@ -79,18 +107,44 @@ export function useCrops(plotId = null) {
 
   const fetchCrops = useCallback(async () => {
     setLoading(true)
+    const saved = localStorage.getItem('app_crops_data')
+    const allCrops = saved ? JSON.parse(saved) : DEMO_CROPS
+    const localFiltered = plotId ? allCrops.filter(c => String(c.plot_id) === String(plotId)) : allCrops
+
     if (!isConnected()) {
-      const saved = localStorage.getItem('app_crops_data')
-      const allCrops = saved ? JSON.parse(saved) : DEMO_CROPS
-      const filtered = plotId ? allCrops.filter(c => String(c.plot_id) === String(plotId)) : allCrops
-      setCrops(filtered)
+      setCrops(localFiltered)
       setLoading(false)
       return
     }
-    let query = supabase.from('crops').select('*').order('created_at', { ascending: false })
-    if (plotId) query = query.eq('plot_id', plotId)
-    const { data, error } = await query
-    if (!error) setCrops(data || [])
+
+    try {
+      let query = supabase.from('crops').select('*').order('created_at', { ascending: false })
+      if (plotId) query = query.eq('plot_id', plotId)
+      const { data, error } = await query
+      if (!error && data && data.length > 0) {
+        setCrops(data)
+      } else if (localFiltered && localFiltered.length > 0) {
+        setCrops(localFiltered)
+        const sanitized = allCrops.map(c => ({
+          crop_id: String(c.crop_id || c.id || `crop_${c.plot_id}`),
+          plot_id: String(c.plot_id),
+          plant_type: c.plant_type || 'Nha đam',
+          plant_date: c.plant_date || c.seed_date || null,
+          density: c.density || '25cm x 30cm',
+          stage: c.stage || 'Kiến thiết cơ bản',
+          seed_source: c.seed_source || '',
+          plant_count: parseInt(c.plant_count) || 0,
+          seed_count: parseInt(c.seed_count) || 0,
+          seed_batches: c.seed_batches || null,
+          seed_notes: c.seed_notes || ''
+        }))
+        supabase.from('crops').upsert(sanitized, { onConflict: 'crop_id' }).catch(console.error)
+      } else {
+        setCrops([])
+      }
+    } catch (e) {
+      setCrops(localFiltered)
+    }
     setLoading(false)
   }, [plotId])
 

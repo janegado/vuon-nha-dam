@@ -298,19 +298,50 @@ export function useTasks(filterDate = null) {
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
+    const saved = localStorage.getItem('app_field_tasks')
+    const rawTasks = saved ? JSON.parse(saved) : DEMO_TASKS
+    const allLocalTasks = autoReconcileAllPlotTasks(rawTasks)
+    const localFiltered = filterDate ? allLocalTasks.filter(t => t.execute_date === filterDate) : allLocalTasks
+
     if (!isConnected()) {
-      const saved = localStorage.getItem('app_field_tasks')
-      const rawTasks = saved ? JSON.parse(saved) : DEMO_TASKS
-      const allTasks = autoReconcileAllPlotTasks(rawTasks)
-      const filtered = filterDate ? allTasks.filter(t => t.execute_date === filterDate) : allTasks
-      setTasks(filtered)
+      setTasks(localFiltered)
       setLoading(false)
       return
     }
-    let query = supabase.from('field_tasks').select('*').order('execute_date', { ascending: false })
-    if (filterDate) query = query.eq('execute_date', filterDate)
-    const { data, error } = await query
-    if (!error) setTasks(data || [])
+
+    try {
+      let query = supabase.from('field_tasks').select('*').order('execute_date', { ascending: false })
+      if (filterDate) query = query.eq('execute_date', filterDate)
+      const { data, error } = await query
+      if (!error && data && data.length > 0) {
+        setTasks(data)
+        localStorage.setItem('app_field_tasks', JSON.stringify(data))
+      } else if (localFiltered && localFiltered.length > 0) {
+        setTasks(localFiltered)
+        const sanitized = allLocalTasks.map(t => ({
+          task_id: String(t.task_id),
+          plot_id: t.plot_id ? String(t.plot_id) : null,
+          task_name: t.task_name,
+          task_type: t.task_type || 'Khác',
+          execute_date: t.execute_date || new Date().toISOString().split('T')[0],
+          status: t.status || 'Chờ làm',
+          worker_id: t.worker_id || 'Thuý',
+          harvest_qty_kg: parseFloat(t.harvest_qty_kg) || 0,
+          harvest_leaves: parseInt(t.harvest_leaves) || 0,
+          stage_milestone: t.stage_milestone || null,
+          reminder_tag: t.reminder_tag || null,
+          day_offset: t.day_offset || null,
+          is_auto_reminder: Boolean(t.is_auto_reminder),
+          notes: t.notes || '',
+          completed_at: t.completed_at || null
+        }))
+        supabase.from('field_tasks').upsert(sanitized, { onConflict: 'task_id' }).catch(console.error)
+      } else {
+        setTasks([])
+      }
+    } catch (e) {
+      setTasks(localFiltered)
+    }
     setLoading(false)
   }, [filterDate])
 
