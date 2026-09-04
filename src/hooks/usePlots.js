@@ -153,7 +153,20 @@ export function useCrops(plotId = null) {
       if (plotId) query = query.eq('plot_id', plotId)
       const { data, error } = await query
       if (!error && data && data.length > 0) {
-        setCrops(data)
+        const enriched = data.map(c => ({
+          ...c,
+          ...(c.data || {}),
+          crop_id: c.crop_id,
+          plot_id: c.plot_id,
+          plant_type: c.plant_type || c.data?.plant_type || 'Nha đam Mỹ',
+          plant_date: c.plant_date || c.data?.plant_date,
+          plant_count: c.plant_count ?? c.data?.plant_count ?? c.data?.total_plants ?? 0,
+          seed_count: c.seed_count ?? c.data?.seed_count ?? c.plant_count ?? 0,
+          seed_batches: c.seed_batches || c.data?.seed_batches || [],
+          plant_size: c.plant_size || c.data?.plant_size || '20–25 cm'
+        }))
+        setCrops(enriched)
+        localStorage.setItem('app_crops_data', JSON.stringify(enriched))
       } else {
         setCrops(localFiltered)
       }
