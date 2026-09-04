@@ -1,55 +1,71 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase, isConnected } from '../lib/supabase'
 
-// ====== Danh mục Lô mẫu ban đầu ở trạng thái Mới (Chuẩn bị làm đất) ======
-const DEMO_PLOTS = [
-  { plot_id: '1', name: 'Lô A - Phía Đông', area_m2: 30, soil_ph: 6.5, soil_type: 'Thịt nhẹ', status: 'Chuẩn bị', area_coord_code: 'A1', cultivation_stage: 'Làm đất' },
-  { plot_id: '2', name: 'Lô B - Trung tâm', area_m2: 40, soil_ph: 6.8, soil_type: 'Thịt pha cát', status: 'Chuẩn bị', area_coord_code: 'B1', cultivation_stage: 'Làm đất' },
-  { plot_id: '3', name: 'Lô C - Phía Tây', area_m2: 30, soil_ph: 6.3, soil_type: 'Thịt nhẹ', status: 'Chuẩn bị', area_coord_code: 'C1', cultivation_stage: 'Làm đất' },
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+// ====== Danh mục 3 Lô vườn chuẩn ban đầu ======
+export const DEMO_PLOTS = [
+  { plot_id: '11111111-1111-4111-8111-111111111111', name: 'Lô A - Phía Đông', area_m2: 30, soil_ph: 6.5, soil_type: 'Thịt nhẹ', status: 'Chuẩn bị', area_coord_code: 'A1', cultivation_stage: 'Làm đất' },
+  { plot_id: '22222222-2222-4222-8222-222222222222', name: 'Lô B - Trung tâm', area_m2: 40, soil_ph: 6.8, soil_type: 'Thịt pha cát', status: 'Chuẩn bị', area_coord_code: 'B1', cultivation_stage: 'Làm đất' },
+  { plot_id: '33333333-3333-4333-8333-333333333333', name: 'Lô C - Phía Tây', area_m2: 30, soil_ph: 6.3, soil_type: 'Thịt nhẹ', status: 'Chuẩn bị', area_coord_code: 'C1', cultivation_stage: 'Làm đất' },
 ]
 
-const DEMO_CROPS = []
+export const DEMO_CROPS = []
 
 export function usePlots() {
-  const [plots, setPlots] = useState([])
+  const [plots, setPlots] = useState(DEMO_PLOTS)
   const [loading, setLoading] = useState(true)
 
   const fetchPlots = useCallback(async () => {
     setLoading(true)
     const saved = localStorage.getItem('app_plots_data')
-    const localPlots = saved ? JSON.parse(saved) : DEMO_PLOTS
+    let localPlots = null
+    try {
+      const parsed = saved ? JSON.parse(saved) : null
+      if (Array.isArray(parsed) && parsed.length > 0) localPlots = parsed
+    } catch (e) {}
+
+    const initialPlots = localPlots || DEMO_PLOTS
 
     if (!isConnected()) {
-      setPlots(localPlots)
+      setPlots(initialPlots)
       setLoading(false)
       return
     }
 
     try {
-      const { data, error } = await supabase.from('plots').select('*').order('created_at', { ascending: false })
+      const { data, error } = await supabase.from('plots').select('*').order('name', { ascending: true })
       if (!error && data && data.length > 0) {
         setPlots(data)
         localStorage.setItem('app_plots_data', JSON.stringify(data))
       } else {
-        // Cloud trống hoặc lỗi -> Hiển thị Local / Demo Plots & Tự động đẩy lên Cloud
-        const effectivePlots = (localPlots && localPlots.length > 0) ? localPlots : DEMO_PLOTS
-        setPlots(effectivePlots)
-        const sanitized = effectivePlots.map(p => ({
-          plot_id: String(p.plot_id || p.id),
+        // Nếu Cloud chưa có lô nào -> Luôn hiển thị 3 Lô mặc định và lưu lên Cloud
+        setPlots(initialPlots)
+        localStorage.setItem('app_plots_data', JSON.stringify(initialPlots))
+        
+        const payload = initialPlots.map(p => ({
+          plot_id: p.plot_id && p.plot_id.length > 10 ? p.plot_id : generateUUID(),
           name: p.name || 'Lô vườn',
-          area_m2: parseFloat(p.area_m2) || 0,
+          area_m2: parseFloat(p.area_m2) || 30,
           soil_ph: parseFloat(p.soil_ph) || 6.5,
           soil_type: p.soil_type || 'Thịt nhẹ',
           status: p.status || 'Chuẩn bị',
           cultivation_stage: p.cultivation_stage || 'Làm đất',
-          area_coord_code: p.area_coord_code || '',
-          cultivation_history: p.cultivation_history || '',
-          last_soil_treatment_date: p.last_soil_treatment_date || null
+          area_coord_code: p.area_coord_code || 'A1'
         }))
-        supabase.from('plots').upsert(sanitized, { onConflict: 'plot_id' }).catch(console.error)
+        
+        supabase.from('plots').insert(payload).catch(console.error)
       }
     } catch (e) {
-      setPlots(localPlots && localPlots.length > 0 ? localPlots : DEMO_PLOTS)
+      setPlots(initialPlots)
     }
     setLoading(false)
   }, [])
@@ -57,18 +73,34 @@ export function usePlots() {
   useEffect(() => { fetchPlots() }, [fetchPlots])
 
   const addPlot = async (plot) => {
+    const newPlot = {
+      ...plot,
+      plot_id: plot.plot_id || generateUUID(),
+      created_at: new Date().toISOString()
+    }
+
     if (!isConnected()) {
-      const newPlot = { ...plot, plot_id: String(Date.now()), created_at: new Date().toISOString() }
       setPlots(prev => {
-        const updated = [newPlot, ...prev]
+        const updated = [...prev, newPlot]
         localStorage.setItem('app_plots_data', JSON.stringify(updated))
         return updated
       })
       return newPlot
     }
-    const { data, error } = await supabase.from('plots').insert(plot).select().single()
-    if (!error) { await fetchPlots(); return data }
-    return null
+
+    const { data, error } = await supabase.from('plots').insert(newPlot).select().single()
+    if (!error) {
+      await fetchPlots()
+      return data
+    } else {
+      // Fallback
+      setPlots(prev => {
+        const updated = [...prev, newPlot]
+        localStorage.setItem('app_plots_data', JSON.stringify(updated))
+        return updated
+      })
+      return newPlot
+    }
   }
 
   const updatePlot = async (id, updates) => {
@@ -122,24 +154,8 @@ export function useCrops(plotId = null) {
       const { data, error } = await query
       if (!error && data && data.length > 0) {
         setCrops(data)
-      } else if (localFiltered && localFiltered.length > 0) {
-        setCrops(localFiltered)
-        const sanitized = allCrops.map(c => ({
-          crop_id: String(c.crop_id || c.id || `crop_${c.plot_id}`),
-          plot_id: String(c.plot_id),
-          plant_type: c.plant_type || 'Nha đam',
-          plant_date: c.plant_date || c.seed_date || null,
-          density: c.density || '25cm x 30cm',
-          stage: c.stage || 'Kiến thiết cơ bản',
-          seed_source: c.seed_source || '',
-          plant_count: parseInt(c.plant_count) || 0,
-          seed_count: parseInt(c.seed_count) || 0,
-          seed_batches: c.seed_batches || null,
-          seed_notes: c.seed_notes || ''
-        }))
-        supabase.from('crops').upsert(sanitized, { onConflict: 'crop_id' }).catch(console.error)
       } else {
-        setCrops([])
+        setCrops(localFiltered)
       }
     } catch (e) {
       setCrops(localFiltered)
@@ -150,8 +166,13 @@ export function useCrops(plotId = null) {
   useEffect(() => { fetchCrops() }, [fetchCrops])
 
   const addCrop = async (crop) => {
+    const newCrop = {
+      ...crop,
+      crop_id: crop.crop_id || generateUUID(),
+      created_at: new Date().toISOString()
+    }
+
     if (!isConnected()) {
-      const newCrop = { ...crop, crop_id: String(Date.now()), created_at: new Date().toISOString() }
       const saved = localStorage.getItem('app_crops_data')
       const allCrops = saved ? JSON.parse(saved) : DEMO_CROPS
       const updated = [newCrop, ...allCrops]
@@ -159,9 +180,15 @@ export function useCrops(plotId = null) {
       setCrops(prev => [newCrop, ...prev])
       return newCrop
     }
-    const { data, error } = await supabase.from('crops').insert(crop).select().single()
-    if (!error) { await fetchCrops(); return data }
-    return null
+
+    const { data, error } = await supabase.from('crops').insert(newCrop).select().single()
+    if (!error) {
+      await fetchCrops()
+      return data
+    } else {
+      setCrops(prev => [newCrop, ...prev])
+      return newCrop
+    }
   }
 
   const updateCrop = async (id, updates) => {
