@@ -482,7 +482,7 @@ export default function PlotDetailPage() {
   useEffect(() => {
     if (plot && (effectivePlantDate || ['Trồng cây', 'Chăm sóc', 'Thu hoạch'].includes(plotStage))) {
       const pDate = effectivePlantDate || plantDate || today
-      const hasTasks = (allFieldTasks || []).some(t => String(t.plot_id) === String(plotId) && (t.task_id?.startsWith(`plot_${plotId}_d`) || t.stage_milestone))
+      const hasTasks = (allFieldTasks || []).some(t => String(t.plot_id) === String(plotId))
       if (!hasTasks && syncPlotLifecycleTasks) {
         syncPlotLifecycleTasks(plotId, plot.name, pDate)
       }

@@ -98,9 +98,15 @@ export default function PlotsPage() {
           const pDate = mainCrop?.plant_date
           const ageDays = pDate ? Math.max(0, Math.floor((new Date() - new Date(pDate)) / 86400000)) : null
 
-          // Việc nhắc nhở kế tiếp cho lô này
+          const isTaskDone = (t) => {
+            if (!t) return false
+            const s = String(t.status || '').toLowerCase().trim()
+            return s === 'đã hoàn thành' || s === 'hoàn thành' || s === 'đã làm' || s === 'completed' || s === 'done' || !!t.completed_at
+          }
+
+          // Việc nhắc nhở kế tiếp cho lô này (chỉ lấy các việc CHƯA làm)
           const nextTask = (tasks || [])
-            .filter(t => String(t.plot_id) === String(plot.plot_id) && t.status !== 'Đã hoàn thành')
+            .filter(t => String(t.plot_id) === String(plot.plot_id) && !isTaskDone(t))
             .sort((a, b) => (a.execute_date || '').localeCompare(b.execute_date || ''))[0]
 
           const isNextTaskToday = nextTask?.execute_date === today
