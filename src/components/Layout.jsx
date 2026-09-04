@@ -110,6 +110,21 @@ export default function Layout({ children }) {
             </div>
           </div>
           <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              background: '#ecfdf5',
+              border: '1px solid #10b981',
+              color: '#047857',
+              fontSize: '12px',
+              fontWeight: 600
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+              <span>☁️ Cloud Đã Kết Nối</span>
+            </div>
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
@@ -121,7 +136,7 @@ export default function Layout({ children }) {
               style={{ fontSize: 12, color: 'var(--color-danger)', border: '1px dashed var(--color-danger)', padding: '4px 10px', borderRadius: 6, fontWeight: 600 }}
               title="Xóa toàn bộ dữ liệu mẫu/test và đưa ứng dụng về trạng thái mới tinh"
             >
-              🧹 Xóa sạch dữ liệu test
+              🧹 Xóa sạch test
             </button>
             <div style={{
               width: 36, height: 36,
