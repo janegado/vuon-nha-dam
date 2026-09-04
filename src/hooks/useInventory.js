@@ -312,8 +312,9 @@ export function useInventory() {
         if (rRes.data) localStorage.setItem('app_purchase_receipts', JSON.stringify(rRes.data))
         if (lRes.data) localStorage.setItem('app_production_logs', JSON.stringify(lRes.data))
       } else {
-        // Supabase trống -> Lấy dữ liệu Local & Tự động đẩy lên Supabase
-        const calculatedItems = calculateInventoryFromReceiptsAndLogs(localItems, localReceipts, localLogs)
+        // Supabase trống -> Lấy dữ liệu Local hoặc Demo & Tự động đẩy lên Supabase
+        const effectiveItems = (localItems && localItems.length > 0) ? localItems : [...DEMO_INVENTORY]
+        const calculatedItems = calculateInventoryFromReceiptsAndLogs(effectiveItems, localReceipts, localLogs)
         setItems(calculatedItems)
         setPurchaseReceipts(localReceipts)
         setProductionLogs(localLogs)

@@ -30,10 +30,11 @@ export function usePlots() {
       if (!error && data && data.length > 0) {
         setPlots(data)
         localStorage.setItem('app_plots_data', JSON.stringify(data))
-      } else if (localPlots && localPlots.length > 0) {
-        // Cloud trống nhưng Local có dữ liệu -> Hiển thị Local & Tự động đẩy lên Cloud
-        setPlots(localPlots)
-        const sanitized = localPlots.map(p => ({
+      } else {
+        // Cloud trống hoặc lỗi -> Hiển thị Local / Demo Plots & Tự động đẩy lên Cloud
+        const effectivePlots = (localPlots && localPlots.length > 0) ? localPlots : DEMO_PLOTS
+        setPlots(effectivePlots)
+        const sanitized = effectivePlots.map(p => ({
           plot_id: String(p.plot_id || p.id),
           name: p.name || 'Lô vườn',
           area_m2: parseFloat(p.area_m2) || 0,
@@ -46,11 +47,9 @@ export function usePlots() {
           last_soil_treatment_date: p.last_soil_treatment_date || null
         }))
         supabase.from('plots').upsert(sanitized, { onConflict: 'plot_id' }).catch(console.error)
-      } else {
-        setPlots([])
       }
     } catch (e) {
-      setPlots(localPlots)
+      setPlots(localPlots && localPlots.length > 0 ? localPlots : DEMO_PLOTS)
     }
     setLoading(false)
   }, [])
