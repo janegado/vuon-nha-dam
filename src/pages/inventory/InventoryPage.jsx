@@ -1,5 +1,5 @@
 import { useState, Fragment } from 'react'
-import { useInventory } from '../../hooks/useInventory'
+import { useInventory, resetAllInventoryAndCloud } from '../../hooks/useInventory'
 import { usePlots } from '../../hooks/usePlots'
 import { useTasks } from '../../hooks/useTasks'
 import { useProducts, useOrders } from '../../hooks/useSales'
@@ -207,8 +207,8 @@ export default function InventoryPage() {
   const { products } = useProducts()
   const { orders } = useOrders()
 
-  // Thu hoạch từ vườn
-  const harvestLogs = (tasks || []).filter(t => t.task_type === 'Thu hoạch')
+  // Thu hoạch thực tế từ vườn (Chỉ lấy các đợt đã hoàn thành hoặc có sản lượng thực thu > 0)
+  const harvestLogs = (tasks || []).filter(t => t.task_type === 'Thu hoạch' && (parseFloat(t.harvest_qty_kg) > 0 || parseInt(t.harvest_leaves) > 0 || parseInt(t.harvest_seedling_qty) > 0 || t.status === 'Đã hoàn thành'))
   const totalHarvestKg = harvestLogs.reduce((sum, t) => sum + (parseFloat(t.harvest_qty_kg) || 0), 0)
   const totalHarvestLeaves = harvestLogs.reduce((sum, t) => sum + (parseInt(t.harvest_leaves) || 0), 0)
   const totalHarvestSeedlings = harvestLogs.reduce((sum, t) => sum + (parseInt(t.harvest_seedling_qty) || 0), 0)
@@ -293,17 +293,23 @@ export default function InventoryPage() {
 
   const handleOpenEditReceipt = (r) => {
     setEditingReceiptId(r.receipt_id)
+    const normalizeId = (id) => {
+      if (id === 'NL_SUA') return 'NL10'
+      if (id === 'NL_TRI') return 'NL08'
+      return id || 'NL07'
+    }
+
     setPurchaseForm({
       date: r.date || new Date().toISOString().split('T')[0],
       supplier: r.supplier || '',
       shipping_cost: parseFloat(r.shipping_cost) || 0,
       discount_amount: parseFloat(r.discount_amount) || 0,
-      is_manual_total: Boolean(r.is_manual_total),
-      total_paid: parseFloat(r.total_cost || r.total_paid) || 0,
+      is_manual_total: Boolean(r.is_manual_total ?? r.data?.is_manual_total),
+      total_paid: parseFloat(r.total_paid ?? r.data?.total_paid ?? r.total_cost) || 0,
       notes: r.notes || '',
       items_list: (r.items_list && r.items_list.length > 0)
         ? r.items_list.map(i => ({
-            item_id: i.item_id || 'NL07',
+            item_id: normalizeId(i.item_id),
             variety: i.variety || i.item_name || '',
             spec: i.spec || i.notes || '',
             row_notes: i.row_notes || '',
@@ -313,7 +319,7 @@ export default function InventoryPage() {
             unit: i.unit || 'cây'
           }))
         : [{
-            item_id: r.item_id || 'NL07',
+            item_id: normalizeId(r.item_id),
             variety: r.item_name || 'Cây giống nha đam',
             spec: '',
             row_notes: '',
@@ -540,22 +546,27 @@ export default function InventoryPage() {
 
   const handleSavePurchase = async (e) => {
     e.preventDefault()
-    let saved
-    const supplierName = purchaseForm.supplier || 'Nguồn giống'
-    const totalRec = purchaseForm.items_list.reduce((s, r) => s + (parseFloat(r.qty) || 0) + (parseFloat(r.bonus_qty) || 0), 0)
+    try {
+      let saved
+      const supplierName = purchaseForm.supplier || 'Nguồn giống'
+      const totalRec = purchaseForm.items_list.reduce((s, r) => s + (parseFloat(r.qty) || 0) + (parseFloat(r.bonus_qty) || 0), 0)
 
-    if (editingReceiptId) {
-      saved = await updatePurchaseReceipt(editingReceiptId, purchaseForm)
-      setToastMsg(`✏️ Đã cập nhật phiếu nhập [Đợt ${editingReceiptId}] (${totalRec} cây/vật tư từ ${supplierName}) và đồng bộ lại kho!`)
-    } else {
-      saved = await addPurchaseReceipt(purchaseForm)
-      setToastMsg(`🚚 Đã lưu đơn nhập ${saved?.receipt_id || ''} (${totalRec} cây/vật tư từ ${supplierName}) thành công!`)
+      if (editingReceiptId) {
+        saved = await updatePurchaseReceipt(editingReceiptId, purchaseForm)
+        setToastMsg(`✏️ Đã cập nhật thành công phiếu nhập [Đợt ${editingReceiptId}] (${totalRec} ${saved?.unit || 'cây/vật tư'} từ ${supplierName}) và đồng bộ lại kho!`)
+      } else {
+        saved = await addPurchaseReceipt(purchaseForm)
+        setToastMsg(`🚚 Đã lưu đơn nhập ${saved?.receipt_id || ''} (${totalRec} cây/vật tư từ ${supplierName}) thành công!`)
+      }
+
+      setShowPurchaseForm(false)
+      setEditingReceiptId(null)
+      resetPurchaseForm()
+      setTimeout(() => setToastMsg(''), 5000)
+    } catch (err) {
+      console.error('Error saving purchase:', err)
+      alert(`⚠️ Không thể lưu phiếu: ${err.message || 'Vui lòng kiểm tra lại kết nối'}`)
     }
-
-    setShowPurchaseForm(false)
-    setEditingReceiptId(null)
-    resetPurchaseForm()
-    setTimeout(() => setToastMsg(''), 5000)
   }
 
   // Handlers cho Ghi nhận hao hụt / hư hỏng theo từng Đợt nhập
@@ -689,6 +700,18 @@ export default function InventoryPage() {
           <button className="btn btn-secondary" onClick={handleSyncPlotsAndInventory} style={{ color: 'var(--color-primary-800)', fontWeight: 700 }} title="Tự động quét tất cả các Lô đất và đồng bộ số liệu xuất trồng vào sổ nhật ký và tồn kho">
             <RotateCcw size={18} /> 🔄 Đồng bộ Lô & Kho
           </button>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              if (confirm('🔄 Bạn có chắc muốn khôi phục lại 6 Phiếu nhập thực tế và đặt toàn bộ Tồn kho về 100% (0 xuất)?')) {
+                await resetAllInventoryAndCloud()
+              }
+            }}
+            style={{ color: '#16a34a', border: '1px solid #86efac', background: '#f0fdf4', fontWeight: 700 }}
+            title="Khôi phục đầy đủ 6 phiếu nhập và tồn kho chuẩn 100%"
+          >
+            <RotateCcw size={18} /> 🔄 Khôi phục Kho Chuẩn
+          </button>
           <button className="btn btn-ghost" onClick={() => setShowCostingModal(true)} title="Xem chi tiết cách tính giá thành">
             <DollarSign size={18} /> Bảng giá thành
           </button>
@@ -777,14 +800,14 @@ export default function InventoryPage() {
         <button className={`tab ${activeTab === 'raw' ? 'active' : ''}`} onClick={() => setActiveTab('raw')}>
           📦 1. Vật tư đầu vào & Lịch sử nhập ({items.length})
         </button>
+        <button className={`tab ${activeTab === 'ledger' ? 'active' : ''}`} onClick={() => setActiveTab('ledger')}>
+          📜 2. Sổ Nhật ký Nhập - Xuất toàn vườn
+        </button>
         <button className={`tab ${activeTab === 'production' ? 'active' : ''}`} onClick={() => setActiveTab('production')}>
-          🧪 2. Chế biến & Dòng chảy vi sinh ({productionLogs.length} mẻ)
+          🧪 3. Chế biến & Dòng chảy vi sinh ({productionLogs.length} mẻ)
         </button>
         <button className={`tab ${activeTab === 'harvest' ? 'active' : ''}`} onClick={() => setActiveTab('harvest')}>
-          🌾 3. Thu hoạch & Nông sản vườn ({harvestLogs.length} đợt thu)
-        </button>
-        <button className={`tab ${activeTab === 'ledger' ? 'active' : ''}`} onClick={() => setActiveTab('ledger')}>
-          📜 4. Sổ Nhật ký Nhập - Xuất toàn vườn
+          🌾 4. Thu hoạch & Nông sản vườn ({harvestLogs.length} đợt thu)
         </button>
       </div>
 
@@ -1001,29 +1024,13 @@ export default function InventoryPage() {
                             </div>
                           )}
                         </td>
-                        <td>
-                          {(() => {
-                            const calcListTotal = (receipt.items_list && Array.isArray(receipt.items_list))
-                              ? receipt.items_list.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)
-                              : 0
-                            return `${parseFloat(receipt.qty) || calcListTotal || 0} ${receipt.unit || 'món'}`
-                          })()}
-                        </td>
+                        <td>{receipt.qty} {receipt.unit}</td>
                         <td>
                           {receipt.bonus_qty > 0 ? (
                             <span className="badge badge-success">+{receipt.bonus_qty} {receipt.unit}</span>
                           ) : '—'}
                         </td>
-                        <td>
-                          <strong>
-                            {(() => {
-                              const calcListTotal = (receipt.items_list && Array.isArray(receipt.items_list))
-                                ? receipt.items_list.reduce((s, i) => s + (parseFloat(i.total_received_qty || i.qty) || 0), 0)
-                                : 0
-                              return `${parseFloat(receipt.total_received_qty ?? receipt.qty) || calcListTotal || 0} ${receipt.unit || 'món'}`
-                            })()}
-                          </strong>
-                        </td>
+                        <td><strong>{receipt.total_received_qty || receipt.qty} {receipt.unit}</strong></td>
                         <td style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{formatVND(receipt.total_cost)}</td>
                         <td>
                           <span className="badge badge-success" style={{ fontSize: 13, fontWeight: 700 }}>
@@ -1336,16 +1343,15 @@ export default function InventoryPage() {
               </button>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  if (confirm('🧹 Bạn có chắc muốn xóa sạch toàn bộ lịch sử trong sổ nhật ký và reset dữ liệu test về 0 để nhập mới không?')) {
-                    localStorage.clear()
-                    window.location.reload()
+                onClick={async () => {
+                  if (confirm('🔄 Bạn có chắc muốn khôi phục lại 6 Phiếu nhập thực tế và đặt toàn bộ Tồn kho về 100% (0 xuất)?')) {
+                    await resetAllInventoryAndCloud()
                   }
                 }}
-                style={{ color: 'var(--color-danger)', border: '1px dashed var(--color-danger)', fontWeight: 600 }}
-                title="Xóa trắng sổ nhật ký và đưa toàn bộ kho về 0"
+                style={{ color: '#16a34a', border: '1px solid #86efac', background: '#f0fdf4', fontWeight: 700 }}
+                title="Khôi phục đầy đủ 6 phiếu nhập và tồn kho chuẩn 100%"
               >
-                🧹 Xóa trắng sổ nhật ký & Dữ liệu test
+                🔄 Khôi phục 6 Phiếu Nhập & Tồn Kho Chuẩn
               </button>
             </div>
           </div>
@@ -1374,19 +1380,14 @@ export default function InventoryPage() {
                       <td>
                         <strong style={{ color: '#16a34a' }}>
                           {(() => {
-                            const calcListTotal = (r.items_list && Array.isArray(r.items_list))
-                              ? r.items_list.reduce((s, i) => s + (parseFloat(i.total_received_qty || i.qty) || 0), 0)
-                              : 0
-                            const totalQty = parseFloat(r.total_received_qty ?? r.qty) || calcListTotal || 0
-
                             if (r.items_list && Array.isArray(r.items_list) && r.items_list.length > 0) {
                               const distinctUnits = [...new Set(r.items_list.map(i => i.unit).filter(Boolean))]
                               if (distinctUnits.length === 1) {
-                                return `+${totalQty} ${distinctUnits[0]}`
+                                return `+${r.total_received_qty || r.qty} ${distinctUnits[0]}`
                               }
                               return `+${r.items_list.length} món (${r.items_list.map(i => `${i.total_received_qty || i.qty} ${i.unit}`).join(', ')})`
                             }
-                            return `+${totalQty} ${r.unit || 'món'}`
+                            return `+${r.total_received_qty || r.qty} ${r.unit || 'món'}`
                           })()}
                         </strong>
                       </td>
@@ -1534,6 +1535,13 @@ export default function InventoryPage() {
                       </tr>
                     )
                   })}
+                  {(!purchaseReceipts || purchaseReceipts.length === 0) && (!harvestLogs || harvestLogs.length === 0) && (!productionLogs || productionLogs.length === 0) && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 600 }}>
+                        📋 Sổ nhật ký hiện chưa có giao dịch nào.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

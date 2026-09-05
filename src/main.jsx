@@ -4,11 +4,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
-// Tự động xóa sạch 100% toàn bộ dữ liệu test cũ khi tải trang
-const CLEAN_VERSION = 'v4_clean_all_test_data'
-if (localStorage.getItem('app_data_version') !== CLEAN_VERSION) {
-  localStorage.clear()
-  localStorage.setItem('app_data_version', CLEAN_VERSION)
+import { saveDailySnapshot } from './lib/backupManager'
+
+// Tự động chụp Snapshot an toàn khi ứng dụng khởi chạy
+try {
+  saveDailySnapshot()
+} catch (e) {
+  console.warn('Lỗi khi tự động chụp snapshot:', e)
 }
 
 createRoot(document.getElementById('root')).render(

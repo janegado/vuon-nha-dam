@@ -81,7 +81,8 @@ export function useCustomers() {
   const fetchCustomers = useCallback(async () => {
     setLoading(true)
     if (!isConnected()) {
-      setCustomers(DEMO_CUSTOMERS)
+      const saved = localStorage.getItem('app_customers_data')
+      setCustomers(saved ? JSON.parse(saved) : DEMO_CUSTOMERS)
       setLoading(false)
       return
     }
@@ -95,7 +96,11 @@ export function useCustomers() {
   const addCustomer = async (customer) => {
     if (!isConnected()) {
       const c = { ...customer, customer_id: String(Date.now()), created_at: new Date().toISOString() }
-      setCustomers(prev => [...prev, c])
+      setCustomers(prev => {
+        const updated = [...prev, c]
+        localStorage.setItem('app_customers_data', JSON.stringify(updated))
+        return updated
+      })
       return c
     }
     const { data, error } = await supabase.from('customers').insert(customer).select().single()
@@ -105,7 +110,11 @@ export function useCustomers() {
 
   const updateCustomer = async (id, updates) => {
     if (!isConnected()) {
-      setCustomers(prev => prev.map(c => c.customer_id === id ? { ...c, ...updates } : c))
+      setCustomers(prev => {
+        const updated = prev.map(c => c.customer_id === id ? { ...c, ...updates } : c)
+        localStorage.setItem('app_customers_data', JSON.stringify(updated))
+        return updated
+      })
       return
     }
     await supabase.from('customers').update(updates).eq('customer_id', id)
@@ -122,7 +131,8 @@ export function useOrders() {
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     if (!isConnected()) {
-      setOrders(DEMO_ORDERS)
+      const saved = localStorage.getItem('app_orders_data')
+      setOrders(saved ? JSON.parse(saved) : DEMO_ORDERS)
       setLoading(false)
       return
     }
@@ -144,7 +154,11 @@ export function useOrders() {
         items: items.map((it, i) => ({ ...it, order_item_id: String(Date.now() + i) })),
         created_at: new Date().toISOString()
       }
-      setOrders(prev => [o, ...prev])
+      setOrders(prev => {
+        const updated = [o, ...prev]
+        localStorage.setItem('app_orders_data', JSON.stringify(updated))
+        return updated
+      })
       return o
     }
     const { data: orderData, error } = await supabase.from('sales_orders').insert(order).select().single()
@@ -184,7 +198,11 @@ export function useOrders() {
     const paymentStatus = amountPaid >= order.total_amount ? 'Đã thu đủ' : 'Còn nợ'
 
     if (!isConnected()) {
-      setOrders(prev => prev.map(o => o.order_id === orderId ? { ...o, amount_paid: amountPaid, payment_status: paymentStatus } : o))
+      setOrders(prev => {
+        const updated = prev.map(o => o.order_id === orderId ? { ...o, amount_paid: amountPaid, payment_status: paymentStatus } : o)
+        localStorage.setItem('app_orders_data', JSON.stringify(updated))
+        return updated
+      })
       return
     }
     await supabase.from('sales_orders').update({ amount_paid: amountPaid, payment_status: paymentStatus }).eq('order_id', orderId)

@@ -301,13 +301,18 @@ export default function PlotDetailPage() {
     setShowBatchModal(true)
   }
 
-  // Xóa 1 đợt giống khỏi lô
-  const handleDeleteBatch = async (index) => {
-    if (!confirm('Bạn có chắc muốn xóa đợt cây giống này khỏi lô?')) return
-    const updated = seedBatches.filter((_, i) => i !== index)
+  // Chỉnh sửa nhanh số lượng của 1 đợt giống trực tiếp trên bảng
+  const handleQuickAdjustBatchQty = async (index, newQty) => {
+    const qtyNum = Math.max(1, parseInt(newQty) || 1)
+    let updated = [...seedBatches]
+    if (!updated[index]) return
+    updated[index] = { ...updated[index], qty: qtyNum }
     setSeedBatches(updated)
 
     const newTotalSeeds = updated.reduce((sum, b) => sum + (parseInt(b.qty) || 0), 0)
+    setActualPlantCount(newTotalSeeds)
+    setSeedCount(newTotalSeeds)
+
     const combinedTypes = [...new Set(updated.map(b => b.plant_type).filter(Boolean))].join(' + ') || 'Nha đam Mỹ'
     const combinedSizes = [...new Set(updated.map(b => b.plant_size).filter(Boolean))].join(', ') || '15–20 cm'
     const combinedSources = [...new Set(updated.map(b => b.seed_source).filter(Boolean))].join(', ') || ''
@@ -324,8 +329,44 @@ export default function PlotDetailPage() {
       stage: 'Kiến thiết cơ bản'
     }
 
-    if (currentCrop) {
-      await updateCrop(currentCrop.crop_id, cropData)
+    if (currentCrop && (currentCrop.crop_id || currentCrop.id)) {
+      await updateCrop(currentCrop.crop_id || currentCrop.id, cropData)
+    } else {
+      await addCrop(cropData)
+    }
+    if (fetchItems) await fetchItems()
+  }
+
+  // Xóa 1 đợt giống khỏi lô
+  const handleDeleteBatch = async (index) => {
+    if (!confirm('Bạn có chắc muốn xóa đợt cây giống này khỏi lô?')) return
+    const updated = seedBatches.filter((_, i) => i !== index)
+    setSeedBatches(updated)
+
+    const newTotalSeeds = updated.reduce((sum, b) => sum + (parseInt(b.qty) || 0), 0)
+    setActualPlantCount(newTotalSeeds)
+    setSeedCount(newTotalSeeds)
+
+    const combinedTypes = [...new Set(updated.map(b => b.plant_type).filter(Boolean))].join(' + ') || 'Nha đam Mỹ'
+    const combinedSizes = [...new Set(updated.map(b => b.plant_size).filter(Boolean))].join(', ') || '15–20 cm'
+    const combinedSources = [...new Set(updated.map(b => b.seed_source).filter(Boolean))].join(', ') || ''
+
+    const cropData = {
+      ...(currentCrop || {}),
+      plot_id: plotId,
+      seed_batches: updated,
+      plant_type: combinedTypes,
+      plant_size: combinedSizes,
+      seed_count: newTotalSeeds,
+      plant_count: newTotalSeeds,
+      seed_source: combinedSources,
+      stage: 'Kiến thiết cơ bản'
+    }
+
+    if (currentCrop && (currentCrop.crop_id || currentCrop.id)) {
+      await updateCrop(currentCrop.crop_id || currentCrop.id, cropData)
+    } else {
+      await addCrop(cropData)
     }
     if (fetchItems) await fetchItems()
     setToastMsg(`🗑️ Đã xóa đợt giống. Tổng số cây trong lô hiện tại: ${newTotalSeeds} cây! (Đã tự động cập nhật kho)`)
@@ -352,6 +393,9 @@ export default function PlotDetailPage() {
     setShowBatchModal(false)
 
     const newTotalSeeds = updated.reduce((sum, b) => sum + (parseInt(b.qty) || 0), 0)
+    setActualPlantCount(newTotalSeeds)
+    setSeedCount(newTotalSeeds)
+
     const combinedTypes = [...new Set(updated.map(b => b.plant_type).filter(Boolean))].join(' + ') || 'Nha đam Mỹ'
     const combinedSizes = [...new Set(updated.map(b => b.plant_size).filter(Boolean))].join(', ') || '15–20 cm'
     const combinedSources = [...new Set(updated.map(b => b.seed_source).filter(Boolean))].join(', ') || ''
@@ -369,8 +413,8 @@ export default function PlotDetailPage() {
       stage: 'Kiến thiết cơ bản'
     }
 
-    if (currentCrop) {
-      await updateCrop(currentCrop.crop_id, cropData)
+    if (currentCrop && (currentCrop.crop_id || currentCrop.id)) {
+      await updateCrop(currentCrop.crop_id || currentCrop.id, cropData)
     } else {
       await addCrop(cropData)
     }
@@ -482,7 +526,7 @@ export default function PlotDetailPage() {
   useEffect(() => {
     if (plot && (effectivePlantDate || ['Trồng cây', 'Chăm sóc', 'Thu hoạch'].includes(plotStage))) {
       const pDate = effectivePlantDate || plantDate || today
-      const hasTasks = (allFieldTasks || []).some(t => String(t.plot_id) === String(plotId))
+      const hasTasks = (allFieldTasks || []).some(t => String(t.plot_id) === String(plotId) && (t.task_id?.startsWith(`plot_${plotId}_d`) || t.stage_milestone))
       if (!hasTasks && syncPlotLifecycleTasks) {
         syncPlotLifecycleTasks(plotId, plot.name, pDate)
       }
@@ -507,8 +551,8 @@ export default function PlotDetailPage() {
       stage: 'Kiến thiết cơ bản'
     }
 
-    if (currentCrop) {
-      await updateCrop(currentCrop.crop_id, cropData)
+    if (currentCrop && (currentCrop.crop_id || currentCrop.id)) {
+      await updateCrop(currentCrop.crop_id || currentCrop.id, cropData)
     } else {
       await addCrop(cropData)
     }
@@ -530,20 +574,29 @@ export default function PlotDetailPage() {
     e?.preventDefault()
     const plantNum = parseInt(actualPlantCount) || 0
 
+    // Nếu chỉ có 1 đợt giống, cập nhật luôn số lượng của đợt giống đó cho đồng bộ
+    let updatedBatches = [...seedBatches]
+    if (updatedBatches.length === 1) {
+      updatedBatches[0] = { ...updatedBatches[0], qty: plantNum }
+      setSeedBatches(updatedBatches)
+    }
+
     const cropData = {
       ...(currentCrop || {}),
       plot_id: plotId,
+      seed_batches: updatedBatches,
       plant_type: plantType || 'Nha đam Mỹ',
       plant_size: plantSize || '15–20 cm',
       plant_count: plantNum,
+      seed_count: updatedBatches.length > 0 ? updatedBatches.reduce((s, b) => s + (parseInt(b.qty) || 0), 0) : plantNum,
       plant_date: plantDate,
       density: density,
       planting_notes: plantingNotes,
       stage: 'Kiến thiết cơ bản'
     }
 
-    if (currentCrop) {
-      await updateCrop(currentCrop.crop_id, cropData)
+    if (currentCrop && (currentCrop.crop_id || currentCrop.id)) {
+      await updateCrop(currentCrop.crop_id || currentCrop.id, cropData)
     } else {
       await addCrop(cropData)
     }
@@ -971,10 +1024,45 @@ export default function PlotDetailPage() {
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--color-primary-800)' }}>
-                              {b.qty || 0} cây
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: '2px 4px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-icon btn-sm"
+                                style={{ width: 22, height: 22, padding: 0 }}
+                                onClick={() => handleQuickAdjustBatchQty(idx, Math.max(1, (parseInt(b.qty) || 0) - 1))}
+                                title="Giảm 1 cây"
+                              >
+                                <Minus size={12} />
+                              </button>
+                              <input
+                                type="number"
+                                min="1"
+                                value={b.qty || 0}
+                                onChange={(e) => handleQuickAdjustBatchQty(idx, e.target.value)}
+                                style={{
+                                  width: 46,
+                                  textAlign: 'center',
+                                  fontWeight: 800,
+                                  fontSize: 14,
+                                  color: 'var(--color-primary-800)',
+                                  border: '1px solid #94a3b8',
+                                  borderRadius: 4,
+                                  padding: '1px 0',
+                                  background: '#fff'
+                                }}
+                              />
+                              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-primary-800)', paddingRight: 2 }}>cây</span>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-icon btn-sm"
+                                style={{ width: 22, height: 22, padding: 0 }}
+                                onClick={() => handleQuickAdjustBatchQty(idx, (parseInt(b.qty) || 0) + 1)}
+                                title="Tăng 1 cây"
+                              >
+                                <Plus size={12} />
+                              </button>
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2 }}>
                               ({totalPlotSeeds > 0 ? Math.round(((b.qty || 0) / totalPlotSeeds) * 100) : 0}%)
                             </div>
                           </td>
